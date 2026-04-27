@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: image-factory-api
+  namespace: avd-image-prod
+  labels:
+    component: factory-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      component: factory-api
+  template:
+    metadata:
+      labels:
+        component: factory-api
+    spec:
+      containers:
+      - name: gateway
+        image: acrfactory.azurecr.io/devopstrio/factory-api:v1.2.0
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: factory-secrets
+              key: db-url
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: image-factory-svc
+  namespace: avd-image-prod
+spec:
+  selector:
+    component: factory-api
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: build-worker
+  namespace: avd-image-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: build-engine
+  template:
+    metadata:
+      labels:
+        component: build-engine
+    spec:
+      containers:
+      - name: worker
+        image: acrfactory.azurecr.io/devopstrio/build-engine:latest
+        env:
+        - name: AZURE_SUBSCRIPTION_ID
+          value: "your-sub-id"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: factory-api-hpa
+  namespace: avd-image-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: image-factory-api
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
